@@ -1,0 +1,110 @@
+# =============================================================================
+# Corda Grand — repository hygiene
+# Only the VST source, build metadata, docs and demo assets belong in git.
+# Everything generated, local, or host-specific is ignored.
+# =============================================================================
+
+# Build trees, packaging and CMake noise
+/build/
+/dist/
+/out/
+/CMakeFiles/
+/CMakeCache.txt
+/cmake_install.cmake
+/compile_commands.json
+/Makefile
+/build-*/
+*.ninja
+*.ninja_deps
+*.ninja_log
+*.o
+*.obj
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.lib
+*.exe
+*.pdb
+*.ilk
+
+# Local toolchains / downloaded test tools (never commit binaries)
+/tools/cmake/
+/tools/pluginval/
+/tools/venv/
+/.venv/
+/venv/
+/.tmp/
+/.uvcache/
+/.cache/
+/pip-wheel-*/
+__pycache__/
+*.py[cod]
+
+# Research notes and experiment leftovers
+/research/
+
+# Reaper / DAW state. reaper.ini can contain recent personal paths.
+*.rpp
+*.rpp-bak
+*.RPP
+reaper.ini
+reaper-*.ini
+reaper-vst*.ini
+*.reapeaks
+
+# Audio intermediates. The two final demo renders are explicitly kept.
+*.wav
+*.aif
+*.aiff
+*.flac
+*.mp3
+*.ogg
+*.opus
+!demo/corda_demo.flac
+!demo/corda_demo.mp3
+
+# Rendered images: only the documented UI screenshot is kept.
+*.png
+!docs/corda_ui.png
+
+# Logs, traces, temporary dumps
+*.log
+*.trace
+*.prof
+*.perf
+core
+core.*
+vgcore.*
+*.tmp
+
+# Secrets and credentials — defence in depth, even if accidentally created here
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*credential*
+*secret*
+*token*
+.auth_key_tmp
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Archives produced by packaging
+*.zip
+*.7z
+*.tar
+*.tar.gz
+*.tgz

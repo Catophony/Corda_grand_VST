@@ -1,0 +1,32 @@
+Corda Grand
+Copyright (C) 2026 Corda Audio
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with
+this program.  If not, see <https://www.gnu.org/licenses/>.
+
+Third-party software
+--------------------
+JUCE 8.0.8 (https://juce.com)
+Copyright (c) Raw Material Software Limited.
+JUCE is dual-licensed under the GNU GPL v3 and commercial licences.  This
+project uses JUCE under GPL v3.  The JUCE source is in third_party/JUCE and
+retains its own licence files.
+
+CMake 3.31.6 portable distribution in tools/cmake is used only as a build tool
+and is not linked into the plugin.  See tools/cmake/share/cmake-3.31/ for its
+licence.
+
+pluginval (https://github.com/Tracktion/pluginval) is used only for testing.
+
+No audio samples, impulse responses or other recorded audio content are
+included in the plugin.  The WAV/FLAC/MP3 files in the demo directory are
+rendered examples, not runtime assets.
