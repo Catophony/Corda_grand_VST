@@ -29,13 +29,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout CordaAudioProcessor::createP
         AudioParameterFloatAttributes().withLabel("ct")));
 
     add(std::make_unique<AudioParameterFloat>(ParameterID { sympathyId, 1 }, "Sympathetic",
-        NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.40f));
+        NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.45f));
 
     add(std::make_unique<AudioParameterFloat>(ParameterID { bodyId, 1 }, "Soundboard",
         NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.45f));
 
     add(std::make_unique<AudioParameterFloat>(ParameterID { mechanicsId, 1 }, "Mechanics",
-        NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.25f));
+        NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.30f));
 
     add(std::make_unique<AudioParameterFloat>(ParameterID { stereoId, 1 }, "Stereo Width",
         NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.65f));
@@ -55,7 +55,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout CordaAudioProcessor::createP
         AudioParameterFloatAttributes().withLabel("Hz")));
 
     add(std::make_unique<AudioParameterFloat>(ParameterID { roomId, 1 }, "Room",
-        NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.18f));
+        NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.25f));
 
     add(std::make_unique<AudioParameterChoice>(ParameterID { modelId, 1 }, "Voicing",
         StringArray { "Concert", "Intimate", "Bright", "Vintage" }, 0));
@@ -116,15 +116,15 @@ void CordaAudioProcessor::updateEngineParams()
     p.tone          = value(toneId, 0.55f);
     p.dynamics      = value(dynamicsId, 0.65f);
     p.detuneCents   = value(detuneId, 1.4f);
-    p.sympathetic   = value(sympathyId, 0.40f);
+    p.sympathetic   = value(sympathyId, 0.45f);
     p.body          = value(bodyId, 0.45f);
-    p.mechanical    = value(mechanicsId, 0.25f);
+    p.mechanical    = value(mechanicsId, 0.30f);
     p.stereoWidth   = value(stereoId, 0.65f);
     p.releaseTime   = value(releaseId, 0.35f);
     p.pedalNoise    = value(pedalNoiseId, 0.25f);
     p.velocityCurve = value(velocityId, 0.5f);
     p.tuning        = value(tuningId, 440.0f);
-    p.room          = value(roomId, 0.18f);
+    p.room          = value(roomId, 0.25f);
 
     // Voicing presets gently re-voice the instrument without touching the user
     // controls. 0 = concert, 1 = intimate, 2 = bright, 3 = vintage.

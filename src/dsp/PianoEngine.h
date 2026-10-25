@@ -25,9 +25,9 @@ public:
         float tone           = 0.55f;  // 0..1, hammer hardness / high partials
         float dynamics       = 0.65f;  // 0..1, velocity sensitivity
         float detuneCents    = 1.4f;   // unison spread
-        float sympathetic    = 0.40f;  // 0..1, pedal/sympathetic resonance
+        float sympathetic    = 0.45f;  // 0..1, pedal/sympathetic resonance
         float body           = 0.45f;  // 0..1, soundboard colour
-        float mechanical     = 0.25f;  // 0..1, hammer/damper noise
+        float mechanical     = 0.30f;  // 0..1, hammer/damper noise
         float stereoWidth    = 0.65f;  // 0..1
         float releaseTime    = 0.35f;  // damper time, seconds
         float pedalNoise     = 0.25f;  // 0..1

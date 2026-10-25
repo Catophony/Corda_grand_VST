@@ -179,12 +179,12 @@ int main(int argc, char* argv[])
     corda::PianoEngine engine;
     corda::PianoEngine::Params p;
     p.masterGainDb = 0.0f;
-    p.room = 0.16f;
-    p.tone = 0.58f;
-    p.dynamics = 0.7f;
-    p.sympathetic = 0.4f;
-    p.mechanical = 0.3f;
-    p.stereoWidth = 0.7f;
+    p.room = 0.25f;
+    p.tone = 0.55f;
+    p.dynamics = 0.65f;
+    p.sympathetic = 0.45f;
+    p.mechanical = 0.30f;
+    p.stereoWidth = 0.65f;
     engine.setParams(p);
     engine.prepare(sampleRate, 512, 2);
 
