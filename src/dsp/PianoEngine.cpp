@@ -20,17 +20,17 @@ constexpr int kMaxVoices = PianoEngine::kMaxVoices;
 constexpr int kSympatheticModes = 36;
 constexpr int kSympatheticNotes = 12;
 constexpr float kNoteTrimDb[88] = {
-    4.03f, 3.25f, 2.75f, 2.84f, 2.80f, 2.78f, 2.67f, 2.26f,
-    1.86f, 1.66f, 1.58f, 1.42f, 1.20f, 0.93f, 1.05f, 0.95f,
-    0.40f, 0.19f, 0.30f, 0.42f, 0.25f, 0.19f, 0.46f, 0.69f,
-    0.86f, 1.24f, 1.73f, 2.02f, 2.27f, 2.55f, 2.80f, 2.76f,
-    2.71f, 3.16f, 3.54f, 3.45f, 3.31f, 3.28f, 3.81f, 4.48f,
-    4.50f, 3.76f, 3.53f, 4.03f, 3.94f, 3.75f, 4.12f, 4.52f,
-    4.25f, 3.78f, 3.32f, 2.89f, 2.61f, 2.43f, 2.63f, 2.95f,
-    2.96f, 2.83f, 2.75f, 2.75f, 2.75f, 2.70f, 2.53f, 2.52f,
-    2.81f, 3.09f, 3.08f, 2.82f, 2.85f, 3.38f, 4.17f, 4.85f,
-    5.18f, 5.16f, 4.76f, 4.42f, 4.43f, 4.69f, 5.01f, 5.24f,
-    5.62f, 5.91f, 5.83f, 5.49f, 4.85f, 3.73f, 2.22f, 0.61f,
+      9.85f,   9.41f,   9.29f,   9.61f,   9.63f,   9.78f,   9.83f,   8.66f,
+      6.74f,   5.63f,   5.50f,   5.49f,   5.33f,   5.00f,   4.92f,   4.56f,
+      3.81f,   3.51f,   3.53f,   3.44f,   2.84f,   2.35f,   2.36f,   2.32f,
+      2.17f,   2.28f,   2.71f,   3.19f,   3.52f,   3.59f,   3.59f,   3.24f,
+      2.55f,   2.44f,   2.83f,   2.85f,   2.51f,   2.26f,   2.68f,   3.23f,
+      3.15f,   2.38f,   1.97f,   2.11f,   1.92f,   2.03f,   2.75f,   3.34f,
+      3.17f,   2.81f,   2.37f,   2.04f,   2.24f,   2.60f,   3.10f,   3.60f,
+      3.09f,   0.38f,  -3.44f,  -5.32f,  -5.12f,  -4.65f,  -4.22f,  -4.01f,
+     -4.33f,  -4.46f,  -4.33f,  -4.41f,  -4.07f,  -3.24f,  -2.55f,  -1.93f,
+     -1.35f,  -1.37f,  -1.84f,  -1.89f,  -1.51f,  -0.98f,  -0.50f,  -0.37f,
+     -0.20f,   0.14f,   0.65f,   1.51f,   2.36f,   2.77f,   2.75f,   2.19f
 };
 
 
@@ -250,6 +250,8 @@ struct StringBank
     float panL = 0.7071f, panR = 0.7071f;
     float weight = 1.0f;
     int numModes = 1;
+    bool useModal = false;
+    Mode modes[kMaxModes];
     float inharmonicity = 0.0002f;
     float forceScale = 0.001f;
 
@@ -258,12 +260,13 @@ struct StringBank
         delay.reset();
         forceDelay.reset();
         loss.reset();
+        for (int i = 0; i < numModes; ++i) modes[i].reset();
         for (auto& a : dispersion)
             a.reset();
     }
 
     void configure(float sr, float frequency, float detuneCents, float baseT60,
-                   float strike, int, float bankWeight, float, float, uint32_t,
+                   float strike, int modeCount, float bankWeight, float, float, uint32_t,
                    bool preserveState, float, const float*, int, float, float timbre)
     {
         weight = bankWeight;
@@ -271,6 +274,41 @@ struct StringBank
         const float f0 = frequency * std::pow(2.0f, detuneCents / 1200.0f);
         const float b = std::max(0.0f, inharmonicity);
         const float w0 = kTwoPi * f0 / sr;
+        useModal = f0 >= 750.0f;
+
+        if (useModal)
+        {
+            numModes = 0;
+            const float q = std::clamp((f0 - 27.5f) / 4158.0f, 0.0f, 1.0f);
+            const float ampExp = 1.00f + 0.30f * std::clamp((q - 0.15f) / 0.55f, 0.0f, 1.0f)
+                                          - 0.10f * std::clamp((q - 0.70f) / 0.30f, 0.0f, 1.0f)
+                                          - 0.22f * timbre;
+            for (int n = 1; n <= modeCount; ++n)
+            {
+                const float nn = (float) n;
+                const float freq = nn * f0 * std::sqrt(1.0f + b * nn * nn);
+                if (freq >= sr * 0.475f)
+                    break;
+                const float ratioToF0 = freq / f0;
+                const float t60 = std::max(0.04f, baseT60 / std::pow(nn, 0.63f));
+                const float sigma = kLn1000 / t60;
+                const float rr = std::exp(-sigma / sr);
+                const float w = kTwoPi * freq / sr;
+                const float phi = std::sin(kPi * nn * strike);
+                const float roll = 1.0f / (1.0f + std::pow(freq / (9000.0f * (1.0f + 0.2f * timbre)), 1.6f));
+                const float amp = (0.22f + 0.78f * std::abs(phi))
+                                / std::pow(ratioToF0, ampExp)
+                                * roll * (phi < 0.0f ? -1.0f : 1.0f);
+                auto& m = modes[numModes++];
+                m.x1 = m.x2 = 0.0f;
+                m.a1 = 2.0f * rr * std::cos(w);
+                m.a2 = -rr * rr;
+                m.b0 = amp * std::sin(w) * 0.0035f;
+                m.phi = phi;
+            }
+            if (!preserveState) reset();
+            return;
+        }
 
         // Three first-order allpasses create the stiffness dispersion. The
         // coefficient is negative so upper partials are sharp (piano
@@ -303,6 +341,20 @@ struct StringBank
 
     float processAndDisplacement(float force, float& displacement) noexcept
     {
+        if (useModal)
+        {
+            float sum = 0.0f, d = 0.0f;
+            for (int i = 0; i < numModes; ++i)
+            {
+                auto& m = modes[i];
+                const float x = m.a1 * m.x1 + m.a2 * m.x2 + m.b0 * force;
+                m.x2 = m.x1; m.x1 = x;
+                sum += x;
+                if (i < 18) d += x * m.phi;
+            }
+            displacement = d * 0.020f;
+            return sum * weight * 20.0f;
+        }
         // Output at the bridge.
         const float y = delay.read(lineDelay);
 
@@ -319,7 +371,7 @@ struct StringBank
         delay.write(loop + excitation);
 
         displacement = y * 0.020f;
-        return y * weight * 300.0f;
+        return y * weight * 800.0f;
     }
 
     float process(float force) noexcept
@@ -744,7 +796,7 @@ struct PianoEngine::Impl
 
     uint32_t randomCounter = 1;
 
-    float outputScale = 0.0017f;
+    float outputScale = 0.0010f;
 
     static void applyVoicing(Params& p) noexcept
     {
@@ -863,7 +915,7 @@ struct PianoEngine::Impl
         const float notePanValue = notePan(midiNote, params.stereoWidth);
         setPan(notePanValue, v.panL, v.panR);
 
-        v.stringCount = stringCountForNote(midiNote);
+        v.stringCount = midiNote >= 80 ? 1 : stringCountForNote(midiNote);
         const int modes = modeCountForNote(midiNote);
         const float t60 = baseT60(midiNote) * (0.94f + 0.12f * (0.5f + 0.5f * v.rng.next()));
         const float strike = clampf(0.118f + 0.026f * p
@@ -889,13 +941,13 @@ struct PianoEngine::Impl
         // independent oscillators.
         float detunes[kNumBanks] = { 0.0f, detuneBase * 0.5f, -detuneBase * 0.5f };
         const float t60scale1[kNumBanks] = { 1.0f, 1.0f, 1.0f };
-        const float t60scale2[kNumBanks] = { 1.0f, 0.85f, 1.0f };
-        const float t60scale3[kNumBanks] = { 1.0f, 0.85f, 1.20f };
+        const float t60scale2[kNumBanks] = { 1.0f, 0.50f, 2.50f };
+        const float t60scale3[kNumBanks] = { 1.0f, 0.55f, 2.50f };
         const float weights1[kNumBanks] = { 1.0f, 1.0f, 1.0f };
-        const float weights2[kNumBanks] = { 0.50f, 0.50f, 1.0f };
-        const float weights3[kNumBanks] = { 0.33f, 0.33f, 0.34f };
-        const float t60scaleBass[kNumBanks] = { 1.0f, 1.0f, 1.0f };
-        const float weightsBass[kNumBanks] = { 1.0f, 1.0f, 1.0f };
+        const float weights2[kNumBanks] = { 0.46f, 0.34f, 0.20f };
+        const float weights3[kNumBanks] = { 0.46f, 0.34f, 0.20f };
+        const float t60scaleBass[kNumBanks] = { 1.0f, 0.50f, 2.50f };
+        const float weightsBass[kNumBanks] = { 0.46f, 0.34f, 0.20f };
         const float* t60scale = midiNote <= 28 ? t60scaleBass
                               : (v.stringCount == 1 ? t60scale1 : (v.stringCount == 2 ? t60scale2 : t60scale3));
         const float* weights = midiNote <= 28 ? weightsBass
