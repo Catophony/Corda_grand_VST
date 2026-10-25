@@ -20,17 +20,17 @@ constexpr int kMaxVoices = PianoEngine::kMaxVoices;
 constexpr int kSympatheticModes = 36;
 constexpr int kSympatheticNotes = 12;
 constexpr float kNoteTrimDb[88] = {
-    0.25f, -0.49f, -2.94f, -1.54f, -1.49f, -1.76f, -1.25f, -1.87f,
-    -0.71f, -1.91f, -1.84f, -1.19f, -3.13f, -2.87f, -2.66f, -3.24f,
-    -3.56f, -4.59f, -4.53f, -4.44f, -4.85f, -5.08f, -5.09f, -4.56f,
-    -4.29f, -4.10f, -3.56f, -3.02f, -2.47f, -2.17f, -1.82f, -2.01f,
-    -2.09f, -1.77f, -1.16f, -1.29f, -1.82f, -2.34f, -1.48f, -0.66f,
-    0.01f, -0.79f, -0.80f, -0.84f, -0.41f, -0.81f, -0.58f, -0.23f,
-    -0.25f, -0.60f, -1.11f, -1.40f, -1.78f, -2.01f, -1.77f, -1.52f,
-    -1.32f, -1.47f, -1.63f, -1.70f, -1.73f, -1.74f, -1.91f, -1.91f,
-    -1.80f, -1.45f, -1.36f, -1.57f, -1.65f, -1.32f, -0.49f, 0.25f,
-    0.73f, 0.76f, 0.38f, 0.02f, -0.26f, 0.01f, 0.35f, 0.69f,
-    1.04f, 1.27f, 1.34f, 1.02f, 0.44f, -0.54f, -2.07f, -4.02f,
+    4.03f, 3.25f, 2.75f, 2.84f, 2.80f, 2.78f, 2.67f, 2.26f,
+    1.86f, 1.66f, 1.58f, 1.42f, 1.20f, 0.93f, 1.05f, 0.95f,
+    0.40f, 0.19f, 0.30f, 0.42f, 0.25f, 0.19f, 0.46f, 0.69f,
+    0.86f, 1.24f, 1.73f, 2.02f, 2.27f, 2.55f, 2.80f, 2.76f,
+    2.71f, 3.16f, 3.54f, 3.45f, 3.31f, 3.28f, 3.81f, 4.48f,
+    4.50f, 3.76f, 3.53f, 4.03f, 3.94f, 3.75f, 4.12f, 4.52f,
+    4.25f, 3.78f, 3.32f, 2.89f, 2.61f, 2.43f, 2.63f, 2.95f,
+    2.96f, 2.83f, 2.75f, 2.75f, 2.75f, 2.70f, 2.53f, 2.52f,
+    2.81f, 3.09f, 3.08f, 2.82f, 2.85f, 3.38f, 4.17f, 4.85f,
+    5.18f, 5.16f, 4.76f, 4.42f, 4.43f, 4.69f, 5.01f, 5.24f,
+    5.62f, 5.91f, 5.83f, 5.49f, 4.85f, 3.73f, 2.22f, 0.61f,
 };
 
 
@@ -185,7 +185,7 @@ struct StringBank
                    float strikePosition, int modeCount, float bankWeight,
                    float highRoll, float fs, uint32_t seed, bool preserveState,
                    float brightnessTilt, const float* excitation, int excitationLength,
-                   float excitationAmp)
+                   float excitationAmp, float timbre)
     {
         numModes = modeCount;
         detune = detuneCents;
@@ -215,10 +215,12 @@ struct StringBank
             const float w = kTwoPi * freq / sr;
 
             const float phi = std::sin(kPi * nn * strikePosition);
-            const float roll = 1.0f / (1.0f + std::pow(freq / highRoll, 1.6f));
+            const float timbreRoll = 1.0f + 0.35f * timbre;
+            const float roll = 1.0f / (1.0f + std::pow(freq / (highRoll * timbreRoll), 1.6f));
             const float q = std::clamp((f0 - 27.5f) / 4158.0f, 0.0f, 1.0f);
             const float ampExp = 1.00f + 0.30f * std::clamp((q - 0.15f) / 0.55f, 0.0f, 1.0f)
-                                          - 0.10f * std::clamp((q - 0.70f) / 0.30f, 0.0f, 1.0f);
+                                          - 0.10f * std::clamp((q - 0.70f) / 0.30f, 0.0f, 1.0f)
+                                          - 0.22f * timbre;
             const float amp = (0.22f + 0.78f * std::abs(phi))
                             / std::pow(ratioToF0, ampExp + brightnessTilt)
                             * roll * (phi < 0.0f ? -1.0f : 1.0f);
@@ -285,6 +287,7 @@ struct Voice
     float panL = 0.7071f, panR = 0.7071f;
     float outputGain = 1.0f;
     int age = 0;
+    int startDelay = 0;
 
     float contactTimeTarget = 0.003f;
 
@@ -344,7 +347,7 @@ struct SympatheticBank
                 const float freq = f0 * h * std::sqrt(1.0f + 0.00018f * h * h);
                 if (freq >= sr * 0.45f)
                     continue;
-                const float t60 = 8.0f + 4.0f / (float) h;
+                const float t60 = 0.45f + 0.30f / (float) h;
                 const float sigma = kLn1000 / t60;
                 const float rr = std::exp(-sigma / sr);
                 const float w = kTwoPi * freq / sr;
@@ -390,7 +393,7 @@ struct SoundboardBank
         for (int i = 0; i < kModes; ++i)
         {
             const float f = freqs[i];
-            const float t60 = clampf(2.2f / (0.033f * f), 0.075f, 0.9f);
+            const float t60 = clampf(2.2f / (0.033f * f), 0.060f, 0.45f);
             const float sigma = kLn1000 / t60;
             const float r = std::exp(-sigma / sr);
             const float w = kTwoPi * f / sr;
@@ -598,7 +601,7 @@ struct Room
         const float f3 = 0.5f * (d[0] - d[1] - d[2] + d[3]);
         const float fb[kLines] = { f0, f1, f2, f3 };
 
-        constexpr float feedback = 0.80f;
+        constexpr float feedback = 0.76f;
         for (int i = 0; i < kLines; ++i)
         {
             lowState[i] += damp[i] * (fb[i] - lowState[i]);
@@ -671,6 +674,7 @@ struct PianoEngine::Impl
 
     float pedal = 0.0f;
     float pedalSmoothed = 0.0f;
+    float sympatheticDamper = 1.0f;
     float configuredTuning = 440.0f;
     float pedalNoiseEnv = 0.0f;
     float pedalNoiseFilter = 0.0f;
@@ -681,7 +685,57 @@ struct PianoEngine::Impl
 
     uint32_t randomCounter = 1;
 
-    float outputScale = 0.0044f;
+    float outputScale = 0.0038f;
+
+    static void applyVoicing(Params& p) noexcept
+    {
+        switch (p.voicing)
+        {
+            case 1: // Intimate: dark, woody, close, more body
+                p.tone *= 0.62f;
+                p.timbre = -0.65f;
+                p.body = std::min(1.0f, p.body * 1.55f);
+                p.stereoWidth *= 0.65f;
+                p.room = std::min(1.0f, p.room * 1.35f);
+                p.mechanical *= 1.15f;
+                p.dynamics = std::min(1.0f, p.dynamics * 1.08f);
+                p.detuneCents = std::min(4.0f, p.detuneCents * 1.2f);
+                p.releaseTime = std::min(1.2f, p.releaseTime * 1.1f);
+                break;
+            case 2: // Bright studio: hard hammer, lean body, more attack
+                p.tone = std::min(1.0f, p.tone * 1.45f + 0.12f);
+                p.timbre = 0.95f;
+                p.body *= 0.55f;
+                p.room *= 0.65f;
+                p.mechanical *= 0.80f;
+                p.dynamics = std::min(1.0f, p.dynamics + 0.12f);
+                p.detuneCents *= 0.80f;
+                p.stereoWidth = std::min(1.0f, p.stereoWidth * 1.1f);
+                break;
+            case 3: // Vintage: detuned, darker, more mechanical noise
+                p.tone *= 0.72f;
+                p.timbre = -0.35f;
+                p.body = std::min(1.0f, p.body * 1.4f);
+                p.detuneCents = std::min(4.0f, p.detuneCents * 1.9f + 0.4f);
+                p.mechanical *= 1.35f;
+                p.room = std::min(1.0f, p.room * 1.1f);
+                p.releaseTime = std::min(1.2f, p.releaseTime * 1.15f);
+                p.velocityCurve *= 0.9f;
+                break;
+            default:
+                break;
+        }
+        p.tone = clampf(p.tone, 0.0f, 1.0f);
+        p.body = clampf(p.body, 0.0f, 1.0f);
+        p.room = clampf(p.room, 0.0f, 1.0f);
+        p.stereoWidth = clampf(p.stereoWidth, 0.0f, 1.0f);
+        p.mechanical = clampf(p.mechanical, 0.0f, 1.0f);
+        p.dynamics = clampf(p.dynamics, 0.0f, 1.0f);
+        p.velocityCurve = clampf(p.velocityCurve, 0.0f, 1.0f);
+        p.detuneCents = clampf(p.detuneCents, 0.0f, 4.0f);
+        p.releaseTime = clampf(p.releaseTime, 0.05f, 1.2f);
+        p.timbre = clampf(p.timbre, -1.0f, 1.0f);
+    }
 
     float notePan(int note, float width) const noexcept
     {
@@ -727,13 +781,14 @@ struct PianoEngine::Impl
     {
         const float f0 = midiToFreq((float) note, params.tuning);
         const float track = std::max(1.55f * f0, 6000.0f * std::pow(600.0f / std::max(600.0f, f0), 0.5f));
-        return track * (0.72f + 0.56f * params.tone);
+        return track * (0.72f + 0.56f * params.tone) * (1.0f + 0.20f * params.timbre);
     }
 
     void configureVoice(Voice& v, int midiNote, float vel, bool reuseStringState)
     {
         const uint32_t seed = ((uint32_t) midiNote * 1315423911u) ^ (randomCounter++ * 2654435761u);
         v.rng.seed(seed);
+        v.startDelay = (int) (sampleRate * (0.00015f + 0.00165f * (0.5f + 0.5f * v.rng.next())));
         v.note = midiNote;
         v.velocity = clampf(vel, 0.0f, 1.0f);
         v.keyDown = true;
@@ -768,35 +823,29 @@ struct PianoEngine::Impl
         // Soft strikes have a longer felt contact and a darker spectrum; hard
         // strikes are shorter, brighter and richer in upper partials.
         const float contactTilt = (v.contactTimeTarget - 0.0018f) * 55.0f;
-        const float brightnessTilt = 0.32f - 0.52f * v.velocity + contactTilt;
-        float detunes[kNumBanks] = { -detuneBase * 0.55f, detuneBase * 0.35f, detuneBase * 0.55f };
-        const float t60scale1[kNumBanks] = { 1.0f, 1.0f, 1.0f };
-        const float t60scale2[kNumBanks] = { 1.28f, 0.58f, 1.00f };
-        const float t60scale3[kNumBanks] = { 1.30f, 0.55f, 1.02f };
-        const float weights1[kNumBanks] = { 1.0f, 1.0f, 1.0f };
-        const float weights2[kNumBanks] = { 0.70f, 0.80f, 0.70f };
-        const float weights3[kNumBanks] = { 0.58f, 0.82f, 0.72f };
-        const float t60scaleBass[kNumBanks] = { 1.55f, 0.85f, 1.0f };
-        const float weightsBass[kNumBanks] = { 0.62f, 0.95f, 1.0f };
+        const float brightnessTilt = 0.32f - 0.52f * v.velocity + contactTilt + 0.10f * params.timbre;
+        // One dominant string bank with low-level detuned side banks. This
+        // keeps a natural, long fundamental decay while adding the beating of
+        // a real unison without the deep phase cancellation of three equal
+        // independent oscillators.
+        float detunes[kNumBanks] = { 0.0f, detuneBase * 0.5f, -detuneBase * 0.5f };
+        const float t60scale1[kNumBanks] = { 1.0f, 0.9f, 1.0f };
+        const float t60scale2[kNumBanks] = { 1.0f, 0.90f, 1.0f };
+        const float t60scale3[kNumBanks] = { 1.0f, 0.88f, 1.08f };
+        const float weights1[kNumBanks] = { 1.0f, 0.20f, 0.18f };
+        const float weights2[kNumBanks] = { 1.0f, 0.22f, 0.18f };
+        const float weights3[kNumBanks] = { 1.0f, 0.22f, 0.20f };
+        const float t60scaleBass[kNumBanks] = { 1.0f, 1.35f, 1.0f };
+        const float weightsBass[kNumBanks] = { 1.0f, 0.18f, 0.0f };
         const float* t60scale = midiNote <= 28 ? t60scaleBass
                               : (v.stringCount == 1 ? t60scale1 : (v.stringCount == 2 ? t60scale2 : t60scale3));
         const float* weights = midiNote <= 28 ? weightsBass
                             : (v.stringCount == 1 ? weights1 : (v.stringCount == 2 ? weights2 : weights3));
-        const float bankPans[kNumBanks] = { -panSpread, 0.0f, panSpread };
+        const float bankPans[kNumBanks] = { 0.0f, -panSpread, panSpread };
         if (midiNote <= 28)
-        {
-            detunes[0] = -0.10f;
             detunes[1] = 0.10f;
-        }
-        else if (v.stringCount == 1)
-        {
-            detunes[0] = 0.0f;
-        }
         else if (v.stringCount == 2)
-        {
-            detunes[0] = -detuneBase * 0.5f;
             detunes[1] = detuneBase * 0.5f;
-        }
 
         // The initial hammer velocity spans roughly 0.25 m/s (pp) to
         // 5.5 m/s (ff); the excitation amplitude follows the nonlinear
@@ -820,7 +869,8 @@ struct PianoEngine::Impl
             bank.configure(sampleRate, f0, detunes[b], t60 * t60scale[b], strike,
                            modes, weights[b], highRoll, sampleRate, seed + (uint32_t) b * 17u,
                            reuseStringState, brightnessTilt,
-                           v.excitation.data(), v.excitationLength, v.strikeImpulse);
+                           v.excitation.data(), v.excitationLength, v.strikeImpulse,
+                           params.timbre);
             float bl, br;
             setPan(notePanValue + bankPans[b], bl, br);
             bank.panL = bl;
@@ -834,8 +884,8 @@ struct PianoEngine::Impl
 
         const float treble = clampf((float) (midiNote - 72) / 36.0f, 0.0f, 1.0f);
         v.noiseEnv = params.mechanical * (0.16f + 1.8f * std::pow(v.velocity, 1.55f))
-                   * (1.0f - 0.55f * treble);
-        v.noiseDecay = std::exp(-1.0f / (sampleRate * (0.020f + 0.030f * (1.0f - p))));
+                   * (1.0f - 0.55f * treble) * (1.0f + 0.25f * params.timbre);
+        v.noiseDecay = std::exp(-1.0f / (sampleRate * (0.010f + 0.018f * (1.0f - p))));
         v.noiseFilter = 0.0f;
         v.noiseHp = 0.0f;
         v.noiseHigh = 0.0f;
@@ -984,9 +1034,9 @@ struct PianoEngine::Impl
             {
                 v.keyDown = false;
                 const float p = (float) (midiNote - 21) / 87.0f;
-                const float base = params.releaseTime * 0.16f * (1.15f - 0.5f * p);
+                const float base = params.releaseTime * 0.11f * (1.15f - 0.5f * p);
                 const float lift = 1.25f - 0.5f * clampf(velocity, 0.0f, 1.0f);
-                v.damperTau = clampf(base * lift, 0.004f, 0.35f);
+                v.damperTau = clampf(base * lift, 0.003f, 0.25f);
                 v.noiseEnv = std::max(v.noiseEnv, params.mechanical * 0.12f);
                 v.noiseDecay = std::exp(-1.0f / (sampleRate * 0.008f));
                 v.damperThumpEnv = params.mechanical * (0.10f + 0.25f * clampf(velocity, 0.0f, 1.0f));
@@ -1010,7 +1060,7 @@ struct PianoEngine::Impl
                 if (v.active && !v.keyDown)
                 {
                     const float p = (float) (v.note - 21) / 87.0f;
-                    v.damperTau = clampf(params.releaseTime * 0.16f * (1.15f - 0.5f * p), 0.004f, 0.35f);
+                    v.damperTau = clampf(params.releaseTime * 0.11f * (1.15f - 0.5f * p), 0.003f, 0.25f);
                 }
             }
         }
@@ -1035,6 +1085,7 @@ struct PianoEngine::Impl
         viewL = viewR = 0.0f;
         meter = 0.0f;
         pedal = pedalSmoothed = 0.0f;
+        sympatheticDamper = 1.0f;
         activeCount = 0;
     }
 
@@ -1050,7 +1101,11 @@ struct PianoEngine::Impl
         {
             pedalSmoothed += 0.0015f * (pedal - pedalSmoothed);
             const float pedalNow = pedalSmoothed;
-            const float sympatheticGain = params.sympathetic * (0.0008f + 0.022f * pedalNow);
+            if (pedalNow > 0.35f)
+                sympatheticDamper += (1.0f - sympatheticDamper) * 0.003f;
+            else
+                sympatheticDamper *= std::exp(-dt / 0.12f);
+            const float sympatheticGain = params.sympathetic * (0.0001f + 0.0025f * pedalNow);
 
             float mixL = 0.0f;
             float mixR = 0.0f;
@@ -1061,6 +1116,12 @@ struct PianoEngine::Impl
             {
                 if (!v.active)
                     continue;
+
+                if (v.startDelay > 0)
+                {
+                    --v.startDelay;
+                    continue;
+                }
 
                 ++activeCount;
                 ++v.age;
@@ -1127,8 +1188,8 @@ struct PianoEngine::Impl
                     v.noiseFilter += 0.16f * ((n - v.noiseHp) - v.noiseFilter);
                     v.noiseHigh += 0.78f * (n - v.noiseHigh);
                     v.noiseLow += 0.10f * (n - v.noiseLow);
-                    const float noise = (v.noiseLow * 0.85f + v.noiseFilter * 0.48f
-                                       + v.noiseHigh * 0.20f) * v.noiseEnv * 0.75f;
+                    const float noise = (v.noiseLow * 1.00f + v.noiseFilter * 0.55f
+                                       + v.noiseHigh * 0.10f) * v.noiseEnv * 0.75f;
                     vl += noise * v.panL;
                     vr += noise * v.panR;
                     v.noiseEnv *= v.noiseDecay;
@@ -1136,7 +1197,7 @@ struct PianoEngine::Impl
 
                 if (v.thumpEnv > 0.00002f)
                 {
-                    const float th = std::sin(v.thumpPhase) * v.thumpEnv * 0.055f;
+                    const float th = std::sin(v.thumpPhase) * v.thumpEnv * 0.095f;
                     vl += th * v.panL;
                     vr += th * v.panR;
                     v.thumpPhase += v.thumpInc;
@@ -1147,7 +1208,7 @@ struct PianoEngine::Impl
                 if (v.damperThumpEnv > 0.00002f)
                 {
                     const float dth = std::sin(v.damperThumpPhase) * v.damperThumpEnv
-                                    * std::exp(-v.age * dt / 0.020f) * 0.035f;
+                                    * std::exp(-v.age * dt / 0.020f) * 0.050f;
                     vl += dth * v.panL;
                     vr += dth * v.panR;
                     v.damperThumpPhase += v.damperThumpInc;
@@ -1158,7 +1219,7 @@ struct PianoEngine::Impl
                 if (v.knockEnv > 0.00002f)
                 {
                     const float kn = std::sin(v.knockPhase) * v.knockEnv
-                                   * std::exp(-v.age * dt / 0.012f) * 0.035f;
+                                   * std::exp(-v.age * dt / 0.012f) * 0.060f;
                     vl += kn * v.panL;
                     vr += kn * v.panR;
                     v.knockPhase += v.knockInc;
@@ -1178,16 +1239,17 @@ struct PianoEngine::Impl
             }
 
             // Sympathetic strings and duplex-scale resonance.
-            const float sym = sympatheticHp.process(sympathetic.process(stringMono * sympatheticGain));
-            mixL += sym * 0.32f;
-            mixR += sym * 0.32f;
+            const float sym = sympatheticHp.process(
+                sympathetic.process(stringMono * sympatheticGain)) * sympatheticDamper;
+            mixL += sym * 0.10f;
+            mixR += sym * 0.10f;
 
             // Shared soundboard modal bank: a dense, short wooden resonance
             // that is excited by all strings through the bridge.
             const float boardIn = 0.5f * (mixL + mixR);
-            const float board = soundboardHp.process(soundboard.process(boardIn * 0.010f));
-            mixL += board * 0.50f;
-            mixR += board * 0.50f;
+            const float board = soundboardHp.process(soundboard.process(boardIn * 0.007f));
+            mixL += board * 0.42f;
+            mixR += board * 0.42f;
 
             // Soundboard resonances.
             const float bl = bodyL.process(mixL);
@@ -1242,7 +1304,7 @@ void PianoEngine::prepare(double sampleRate, int maximumBlockSize, int)
     impl->soundboard.configure(impl->sampleRate);
     impl->soundboardHp.setHighPass(impl->sampleRate, 105.0f, 0.707f);
     impl->limiter.prepare(impl->sampleRate);
-    impl->sympatheticHp.setHighPass(impl->sampleRate, 90.0f, 0.707f);
+    impl->sympatheticHp.setHighPass(impl->sampleRate, 180.0f, 0.707f);
     impl->bodyL.prepare(impl->sampleRate);
     impl->bodyR.prepare(impl->sampleRate);
     impl->configuredTuning = params.tuning;
@@ -1257,12 +1319,14 @@ void PianoEngine::reset()
 
 void PianoEngine::setParams(const Params& p) noexcept
 {
-    params = p;
-    impl->params = p;
-    if (std::abs(p.tuning - impl->configuredTuning) > 0.01f)
+    Params q = p;
+    Impl::applyVoicing(q);
+    params = q;
+    impl->params = q;
+    if (std::abs(q.tuning - impl->configuredTuning) > 0.01f)
     {
-        impl->configuredTuning = p.tuning;
-        impl->sympathetic.configure(impl->sampleRate, p.tuning);
+        impl->configuredTuning = q.tuning;
+        impl->sympathetic.configure(impl->sampleRate, q.tuning);
     }
 }
 

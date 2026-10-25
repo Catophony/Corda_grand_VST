@@ -15,7 +15,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout CordaAudioProcessor::createP
     };
 
     add(std::make_unique<AudioParameterFloat>(ParameterID { masterId, 1 }, "Master",
-        NormalisableRange<float>(-30.0f, 6.0f, 0.1f), -1.5f,
+        NormalisableRange<float>(-30.0f, 6.0f, 0.1f), -2.0f,
         AudioParameterFloatAttributes().withLabel("dB")));
 
     add(std::make_unique<AudioParameterFloat>(ParameterID { toneId, 1 }, "Hammer Tone",
@@ -55,7 +55,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout CordaAudioProcessor::createP
         AudioParameterFloatAttributes().withLabel("Hz")));
 
     add(std::make_unique<AudioParameterFloat>(ParameterID { roomId, 1 }, "Room",
-        NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.25f));
+        NormalisableRange<float>(0.0f, 1.0f, 0.001f), 0.16f));
 
     add(std::make_unique<AudioParameterChoice>(ParameterID { modelId, 1 }, "Voicing",
         StringArray { "Concert", "Intimate", "Bright", "Vintage" }, 0));
@@ -112,7 +112,7 @@ void CordaAudioProcessor::updateEngineParams()
     };
 
     PianoEngine::Params p;
-    p.masterGainDb  = value(masterId, -1.5f);
+    p.masterGainDb  = value(masterId, -2.0f);
     p.tone          = value(toneId, 0.55f);
     p.dynamics      = value(dynamicsId, 0.65f);
     p.detuneCents   = value(detuneId, 1.4f);
@@ -124,18 +124,8 @@ void CordaAudioProcessor::updateEngineParams()
     p.pedalNoise    = value(pedalNoiseId, 0.25f);
     p.velocityCurve = value(velocityId, 0.5f);
     p.tuning        = value(tuningId, 440.0f);
-    p.room          = value(roomId, 0.25f);
-
-    // Voicing presets gently re-voice the instrument without touching the user
-    // controls. 0 = concert, 1 = intimate, 2 = bright, 3 = vintage.
-    const int voicing = (int) value(modelId, 0.0f);
-    switch (voicing)
-    {
-        case 1: p.tone *= 0.82f; p.sympathetic *= 1.2f; p.body *= 1.25f; p.stereoWidth *= 0.9f; break;
-        case 2: p.tone = juce::jmin(1.0f, p.tone * 1.25f + 0.08f); p.dynamics = juce::jmin(1.0f, p.dynamics + 0.08f); break;
-        case 3: p.tone *= 0.9f; p.detuneCents = juce::jmin(4.0f, p.detuneCents * 1.5f + 0.25f); p.body *= 1.1f; break;
-        default: break;
-    }
+    p.room          = value(roomId, 0.16f);
+    p.voicing       = (int) value(modelId, 0.0f);
 
     piano.setParams(p);
     paramsDirty.store(false, std::memory_order_release);

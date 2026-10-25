@@ -21,7 +21,7 @@ public:
 
     struct Params
     {
-        float masterGainDb   = -3.0f;
+        float masterGainDb   = -2.0f;
         float tone           = 0.55f;  // 0..1, hammer hardness / high partials
         float dynamics       = 0.65f;  // 0..1, velocity sensitivity
         float detuneCents    = 1.4f;   // unison spread
@@ -33,7 +33,9 @@ public:
         float pedalNoise     = 0.25f;  // 0..1
         float velocityCurve  = 0.5f;   // 0..1, 0=soft touch, 1=hard
         float tuning         = 440.0f; // A4
-        float room           = 0.18f;  // 0..1 built-in soundboard space
+        float room           = 0.16f;  // 0..1 built-in soundboard space
+        float timbre         = 0.0f;   // -1 dark .. +1 bright, set by voicing
+        int   voicing        = 0;      // 0 concert, 1 intimate, 2 bright, 3 vintage
     };
 
     PianoEngine();

@@ -88,6 +88,9 @@ int main(int argc, char* argv[])
     float velocity = 0.8f;
     double duration = 8.0;
     bool allTests = false;
+    bool pedalDown = false;
+    bool clean = false;
+    int voicing = 0;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -97,6 +100,9 @@ int main(int argc, char* argv[])
         else if (a == "--dur" && i + 1 < argc) duration = std::atof(argv[++i]);
         else if (a == "--sr" && i + 1 < argc) sampleRate = std::atoi(argv[++i]);
         else if (a == "--all") allTests = true;
+        else if (a == "--pedal") pedalDown = true;
+        else if (a == "--clean") clean = true;
+        else if (a == "--voicing" && i + 1 < argc) voicing = std::atoi(argv[++i]);
         else if (a == "--help") { std::puts("usage: corda_render [out.wav] [--note N --vel V --dur S] [--all] [--sr SR]"); return 0; }
         else output = a;
     }
@@ -185,8 +191,12 @@ int main(int argc, char* argv[])
     p.sympathetic = 0.45f;
     p.mechanical = 0.30f;
     p.stereoWidth = 0.65f;
+    p.voicing = voicing;
+    if (clean) { p.sympathetic = 0.0f; p.body = 0.0f; p.room = 0.0f; p.mechanical = 0.0f; }
     engine.setParams(p);
     engine.prepare(sampleRate, 512, 2);
+    if (pedalDown)
+        engine.sustainPedal(1.0f);
 
     size_t nextEvent = 0;
     const int blockSize = 256;

@@ -1,82 +1,69 @@
 #!/usr/bin/env python3
-"""Generate the bundled MIDI demo (the same performance as the offline demo)."""
+"""Generate the demo MIDI: dry staccato, chord release, pedal and pedalless arpeggios."""
 import struct
 
 PPQ = 480
 BPM = 120
-TICKS_PER_SEC = PPQ * BPM / 60.0
-
+TPS = PPQ * BPM / 60.0
 events = []
 
-def tick(seconds):
-    return int(round(seconds * TICKS_PER_SEC))
+def tick(s): return int(round(s * TPS))
+def note(start, dur, pitch, vel):
+    events.append((tick(start), 2, bytes([0x90, pitch, vel])))
+    events.append((tick(start + dur), 1, bytes([0x80, pitch, max(20, vel - 12)])))
+def pedal(s, value): events.append((tick(s), 0, bytes([0xB0, 64, value])))
 
-def note(start, dur, pitch, velocity):
-    events.append((tick(start), 2, bytes([0x90, pitch, velocity])))
-    events.append((tick(start + dur), 1, bytes([0x80, pitch, max(20, velocity - 15)])))
+# Dry staccato: release must be audible, no pedal.
+for t, p, v in [(0.30, 60, 100), (0.56, 64, 92), (0.82, 67, 96), (1.08, 72, 104),
+                (1.34, 67, 88), (1.60, 64, 84), (1.86, 60, 78)]:
+    note(t, 0.18, p, v)
 
-def pedal(seconds, value):
-    events.append((tick(seconds), 0, bytes([0xB0, 64, value])))
-
-# Opening single notes.
-note(0.35, 2.8, 60, 105)
-note(3.35, 2.7, 67, 92)
-
-# Warm mid chord.
-for p, v in [(48, 115), (55, 92), (64, 83)]:
-    note(6.20, 3.4, p, v)
-
-# Low register.
-for p, v in [(21, 121), (33, 96), (45, 79), (57, 70)]:
-    note(9.90, 4.0, p, v)
+# Held chord with a natural release, still no pedal.
+for p, v in [(48, 100), (55, 84), (60, 92), (64, 80)]:
+    note(2.25, 2.15, p, v)
 
 # Pedalled arpeggio.
-pedal(16.0, 127)
-arp = [48, 55, 60, 64, 67, 72, 76, 79]
-for i in range(20):
-    note(16.1 + i * 0.115, 1.0, arp[i % 8] + (12 if i >= 8 else 0),
-         70 + (i % 4) * 2)
-pedal(20.2, 0)
+pedal(4.90, 127)
+for i, p in enumerate([48, 55, 60, 64, 67, 72, 76, 79, 84]):
+    note(5.00 + i * 0.28, 1.3, p, 72 + (i % 3) * 5)
+pedal(8.20, 0)
 
-# Short low chord.
-for p, v in [(36, 108), (48, 89), (55, 79)]:
-    note(20.3, 3.5, p, v)
+# The same figure dry and staccato.
+for i, p in enumerate([48, 55, 60, 64, 67, 72, 76, 79, 84]):
+    note(8.85 + i * 0.16, 0.16, p, 76 + (i % 3) * 5)
 
-# Fast run.
-pedal(24.0, 127)
-run = [72, 74, 76, 77, 79, 81, 83, 84]
+# Low chord with pedal, then release.
+pedal(11.40, 127)
+for p, v in [(36, 112), (43, 92), (48, 86)]:
+    note(11.55, 2.4, p, v)
+pedal(14.45, 0)
+
+# Dry repeated notes.
 for i in range(8):
-    note(24.2 + i * 0.085, 0.7, run[i], 41 + i * 8)
-pedal(25.6, 0)
+    note(15.00 + i * 0.20, 0.14, 60, 72 + (i % 4) * 6)
 
-# Final C-major spread, plus quiet high octave.
-pedal(25.6, 127)
-for i, (p, v) in enumerate([(24, 127), (36, 99), (48, 89), (60, 92), (64, 83), (67, 79)]):
-    note(25.6 + i * 0.0, 5.0, p, v)
-note(26.1, 3.0, 84, 70)
-note(26.1, 3.0, 91, 57)
-pedal(34.6, 0)
+# Final chord with pedal, plus quiet high octave.
+pedal(17.40, 127)
+for p, v in [(36, 120), (43, 96), (48, 92), (52, 84), (55, 80), (60, 90), (64, 82), (67, 78)]:
+    note(17.55, 4.4, p, v)
+note(18.05, 2.8, 84, 62)
+note(18.05, 2.8, 91, 50)
+pedal(22.40, 0)
 
 events.sort(key=lambda x: (x[0], x[1]))
-data = bytearray()
-last = 0
+data = bytearray(); last = 0
 
 def vlq(n):
-    out = [n & 0x7F]
-    n >>= 7
+    out = [n & 0x7F]; n >>= 7
     while n:
-        out.append((n & 0x7F) | 0x80)
-        n >>= 7
+        out.append((n & 0x7F) | 0x80); n >>= 7
     return bytes(reversed(out))
 
 for t, _, payload in events:
-    data += vlq(t - last) + payload
-    last = t
+    data += vlq(t - last) + payload; last = t
 data += b"\x00\xff\x2f\x00"
-
 tempo = struct.pack(">I", int(60_000_000 / BPM))[1:]
 track = b"\x00\xff\x51\x03" + tempo + data
 smf = b"MThd" + struct.pack(">IHHH", 6, 0, 1, PPQ) + b"MTrk" + struct.pack(">I", len(track)) + track
-with open("demo/corda_demo.mid", "wb") as f:
-    f.write(smf)
-print(f"wrote demo/corda_demo.mid ({len(smf)} bytes, {last / TICKS_PER_SEC:.1f} s)")
+open("demo/corda_demo.mid", "wb").write(smf)
+print(f"wrote demo/corda_demo.mid ({len(smf)} bytes, {last/TPS:.1f} s)")
