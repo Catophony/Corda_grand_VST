@@ -167,112 +167,166 @@ struct Mode
     void reset() noexcept { x1 = x2 = 0.0f; }
 };
 
+// A first-order allpass section used for string stiffness/dispersion.
+struct WaveAllpass
+{
+    float a = 0.0f, z = 0.0f;
+    float process(float x) noexcept
+    {
+        const float y = a * x + z;
+        z = x - a * y;
+        return y;
+    }
+    void reset() noexcept { z = 0.0f; }
+};
+
+struct WaveLowpass
+{
+    float a = 0.0f, z = 0.0f;
+    float process(float x) noexcept
+    {
+        z = (1.0f - a) * x + a * z;
+        return z;
+    }
+    void reset() noexcept { z = 0.0f; }
+};
+
+struct WaveDelay
+{
+    std::vector<float> data;
+    int writeIndex = 0;
+
+    void prepare(int n)
+    {
+        data.assign((size_t) std::max(8, n), 0.0f);
+        writeIndex = 0;
+    }
+    void reset()
+    {
+        std::fill(data.begin(), data.end(), 0.0f);
+        writeIndex = 0;
+    }
+    float read(float delay) const noexcept
+    {
+        float r = (float) writeIndex - delay;
+        while (r < 0.0f) r += (float) data.size();
+        const int i = (int) r;
+        const float f = r - (float) i;
+        const int j = (i + 1) % (int) data.size();
+        return data[(size_t) i] * (1.0f - f) + data[(size_t) j] * f;
+    }
+    void write(float x) noexcept
+    {
+        data[(size_t) writeIndex] = x;
+        if (++writeIndex >= (int) data.size())
+            writeIndex = 0;
+    }
+};
+
+inline float allpassPhaseDelay(float a, float w) noexcept
+{
+    const float nr = a + std::cos(w), ni = -std::sin(w);
+    const float dr = 1.0f + a * std::cos(w), di = -a * std::sin(w);
+    const float ph = std::atan2(ni, nr) - std::atan2(di, dr);
+    return -ph / w;
+}
+
+inline float lowpassPhaseDelay(float a, float w) noexcept
+{
+    const float dr = 1.0f - a * std::cos(w), di = a * std::sin(w);
+    const float ph = -std::atan2(di, dr);
+    return -ph / w;
+}
+
 struct StringBank
 {
-    int numModes = 0;
-    float detune = 0.0f;
+    WaveDelay delay;
+    WaveDelay forceDelay;
+    WaveAllpass dispersion[3];
+    WaveLowpass loss;
+    float lineDelay = 100.0f;
+    float loopGain = 0.999f;
+    float strikePosition = 0.125f;
     float panL = 0.7071f, panR = 0.7071f;
     float weight = 1.0f;
-    Mode modes[kMaxModes];
+    int numModes = 1;
+    float inharmonicity = 0.0002f;
+    float forceScale = 0.001f;
 
     void reset()
     {
-        for (int i = 0; i < numModes; ++i)
-            modes[i].reset();
+        delay.reset();
+        forceDelay.reset();
+        loss.reset();
+        for (auto& a : dispersion)
+            a.reset();
     }
 
     void configure(float sr, float frequency, float detuneCents, float baseT60,
-                   float strikePosition, int modeCount, float bankWeight,
-                   float highRoll, float fs, uint32_t seed, bool preserveState,
-                   float brightnessTilt, const float* excitation, int excitationLength,
-                   float excitationAmp, float timbre)
+                   float strike, int, float bankWeight, float, float, uint32_t,
+                   bool preserveState, float, const float*, int, float, float timbre)
     {
-        numModes = modeCount;
-        detune = detuneCents;
         weight = bankWeight;
-        const float ratio = std::pow(2.0f, detuneCents / 1200.0f);
-        const float f0 = frequency * ratio;
-        const float b = inharmonicity;
-        float pulseArea = 0.0f;
-        for (int i = 0; i < excitationLength; ++i)
-            pulseArea += excitation[i];
-        const float magnitudeFloor = std::max(1.0e-6f, 0.035f * pulseArea);
+        strikePosition = clampf(strike, 0.06f, 0.20f);
+        const float f0 = frequency * std::pow(2.0f, detuneCents / 1200.0f);
+        const float b = std::max(0.0f, inharmonicity);
+        const float w0 = kTwoPi * f0 / sr;
 
-        for (int n = 1; n <= numModes; ++n)
-        {
-            const float nn = (float) n;
-            const float freq = nn * f0 * std::sqrt(1.0f + b * nn * nn);
-            if (freq >= fs * 0.475f)
-            {
-                numModes = n - 1;
-                break;
-            }
+        // Three first-order allpasses create the stiffness dispersion. The
+        // coefficient is negative so upper partials are sharp (piano
+        // inharmonicity), not flat.
+        const float coeff = -clampf(0.06f + b * 20.0f, 0.06f, 0.35f);
+        for (auto& a : dispersion)
+            a.a = coeff;
+        loss.a = clampf(0.10f + 0.08f * (0.5f - 0.5f * timbre), 0.06f, 0.18f);
 
-            const float ratioToF0 = freq / f0;
-            const float t60 = baseT60 / std::pow(nn, 0.63f);
-            const float sigma = kLn1000 / std::max(0.05f, t60);
-            const float r = std::exp(-sigma / sr);
-            const float w = kTwoPi * freq / sr;
+        const float pd = 3.0f * allpassPhaseDelay(coeff, w0) + lowpassPhaseDelay(loss.a, w0);
+        lineDelay = std::max(3.5f, sr / f0 - pd);
+        const int need = (int) (lineDelay * 3.0f) + 16;
+        if ((int) delay.data.size() < need)
+            delay.prepare(need);
+        const int needForce = (int) (2.0f * strikePosition * lineDelay * 2.0f) + 16;
+        if ((int) forceDelay.data.size() < needForce)
+            forceDelay.prepare(needForce);
 
-            const float phi = std::sin(kPi * nn * strikePosition);
-            const float timbreRoll = 1.0f + 0.35f * timbre;
-            const float roll = 1.0f / (1.0f + std::pow(freq / (highRoll * timbreRoll), 1.6f));
-            const float q = std::clamp((f0 - 27.5f) / 4158.0f, 0.0f, 1.0f);
-            const float ampExp = 1.00f + 0.30f * std::clamp((q - 0.15f) / 0.55f, 0.0f, 1.0f)
-                                          - 0.10f * std::clamp((q - 0.70f) / 0.30f, 0.0f, 1.0f)
-                                          - 0.22f * timbre;
-            const float amp = (0.22f + 0.78f * std::abs(phi))
-                            / std::pow(ratioToF0, ampExp + brightnessTilt)
-                            * roll * (phi < 0.0f ? -1.0f : 1.0f);
+        // Loop gain sets the fundamental T60. The lowpass makes high partials
+        // decay faster, as on a struck string.
+        const float t60 = std::max(0.3f, baseT60);
+        loopGain = std::pow(10.0f, -3.0f / (t60 * f0));
+        loopGain = clampf(loopGain, 0.80f, 0.99995f);
 
-            auto& m = modes[n - 1];
-            if (!preserveState)
-                m.x1 = m.x2 = 0.0f;
-            m.a1 = 2.0f * r * std::cos(w);
-            m.a2 = -r * r;
-            const float mag = pulseMagnitude(excitation, excitationLength, w);
-            const float target = excitationAmp * amp;
-            m.b0 = target * std::sin(w) / std::max(mag, magnitudeFloor);
-            m.phi = phi;
-        }
-        (void) seed;
+        if (!preserveState)
+            reset();
     }
 
     void setInharmonicity(float b) noexcept { inharmonicity = b; }
 
-    float process(float force) noexcept
-    {
-        float sum = 0.0f;
-        for (int i = 0; i < numModes; ++i)
-        {
-            auto& m = modes[i];
-            const float x = m.a1 * m.x1 + m.a2 * m.x2 + m.b0 * force;
-            m.x2 = m.x1;
-            m.x1 = x;
-            sum += x;
-        }
-        return sum * weight;
-    }
-
     float processAndDisplacement(float force, float& displacement) noexcept
     {
-        float sum = 0.0f;
-        float d = 0.0f;
-        for (int i = 0; i < numModes; ++i)
-        {
-            auto& m = modes[i];
-            const float x = m.a1 * m.x1 + m.a2 * m.x2 + m.b0 * force;
-            m.x2 = m.x1;
-            m.x1 = x;
-            sum += x;
-            if (i < 18)
-                d += x * m.phi;
-        }
-        displacement = d;
-        return sum * weight;
+        // Output at the bridge.
+        const float y = delay.read(lineDelay);
+
+        // Force is injected at the strike point: 1 - z^(-2 p L) creates the
+        // characteristic comb of a hammer striking at 1/7...1/8 of the string.
+        forceDelay.write(force);
+        const float delayedForce = forceDelay.read(2.0f * strikePosition * lineDelay);
+        const float excitation = (force - delayedForce) * forceScale;
+
+        float loop = loss.process(y);
+        for (auto& a : dispersion)
+            loop = a.process(loop);
+        loop *= loopGain;
+        delay.write(loop + excitation);
+
+        displacement = y * 0.020f;
+        return y * weight * 300.0f;
     }
 
-    float inharmonicity = 0.0002f;
+    float process(float force) noexcept
+    {
+        float d = 0.0f;
+        return processAndDisplacement(force, d);
+    }
 };
 
 struct Voice
@@ -309,10 +363,15 @@ struct Voice
     float damperThumpPhase = 0.0f;
     float damperThumpInc = 0.0f;
 
-    float strikeImpulse = 0.0f;
-    std::array<float, kMaxExcitation> excitation {};
-    int excitationLength = 0;
-    int excitationPosition = 0;
+    float hammerPos = 0.0f;
+    float hammerVel = 0.0f;
+    float hammerMass = 0.008f;
+    float hammerStiffness = 20000.0f;
+    float hammerNonlinearity = 2.6f;
+    float hammerDamping = 4.0f;
+    float stringDisplacement = 0.0f;
+    float bridgeState = 0.0f;
+    bool hammerActive = false;
     Rng rng;
 
     StringBank banks[kNumBanks];
@@ -685,7 +744,7 @@ struct PianoEngine::Impl
 
     uint32_t randomCounter = 1;
 
-    float outputScale = 0.0038f;
+    float outputScale = 0.0017f;
 
     static void applyVoicing(Params& p) noexcept
     {
@@ -766,7 +825,7 @@ struct PianoEngine::Impl
         // The lowest single strings still have two polarisations. Presenting
         // them as two weakly detuned banks gives the characteristic double
         // decay and slow bass beating without pretending there are two strings.
-        if (note <= 28) return 2;
+        if (note <= 28) return 1;
         if (note <= 36) return 2;
         return 3;
     }
@@ -829,14 +888,14 @@ struct PianoEngine::Impl
         // a real unison without the deep phase cancellation of three equal
         // independent oscillators.
         float detunes[kNumBanks] = { 0.0f, detuneBase * 0.5f, -detuneBase * 0.5f };
-        const float t60scale1[kNumBanks] = { 1.0f, 0.9f, 1.0f };
-        const float t60scale2[kNumBanks] = { 1.0f, 0.90f, 1.0f };
-        const float t60scale3[kNumBanks] = { 1.0f, 0.88f, 1.08f };
-        const float weights1[kNumBanks] = { 1.0f, 0.20f, 0.18f };
-        const float weights2[kNumBanks] = { 1.0f, 0.22f, 0.18f };
-        const float weights3[kNumBanks] = { 1.0f, 0.22f, 0.20f };
-        const float t60scaleBass[kNumBanks] = { 1.0f, 1.35f, 1.0f };
-        const float weightsBass[kNumBanks] = { 1.0f, 0.18f, 0.0f };
+        const float t60scale1[kNumBanks] = { 1.0f, 1.0f, 1.0f };
+        const float t60scale2[kNumBanks] = { 1.0f, 0.85f, 1.0f };
+        const float t60scale3[kNumBanks] = { 1.0f, 0.85f, 1.20f };
+        const float weights1[kNumBanks] = { 1.0f, 1.0f, 1.0f };
+        const float weights2[kNumBanks] = { 0.50f, 0.50f, 1.0f };
+        const float weights3[kNumBanks] = { 0.33f, 0.33f, 0.34f };
+        const float t60scaleBass[kNumBanks] = { 1.0f, 1.0f, 1.0f };
+        const float weightsBass[kNumBanks] = { 1.0f, 1.0f, 1.0f };
         const float* t60scale = midiNote <= 28 ? t60scaleBass
                               : (v.stringCount == 1 ? t60scale1 : (v.stringCount == 2 ? t60scale2 : t60scale3));
         const float* weights = midiNote <= 28 ? weightsBass
@@ -847,15 +906,19 @@ struct PianoEngine::Impl
         else if (v.stringCount == 2)
             detunes[1] = detuneBase * 0.5f;
 
-        // The initial hammer velocity spans roughly 0.25 m/s (pp) to
-        // 5.5 m/s (ff); the excitation amplitude follows the nonlinear
-        // transfer through the felt. A short contact force pulse is generated
-        // for this note and then inverse-filtered per partial.
-        const float velocityExponent = 0.85f + 1.4f * params.dynamics
-                                     + 0.8f * (0.5f - params.velocityCurve);
-        v.strikeImpulse = 15.0f * std::pow(v.velocity, clampf(velocityExponent, 0.65f, 2.9f));
-
-        generateHammerPulse(v, midiNote, f0, p);
+        // Hammer state: the felt is compressed against the string with a
+        // nonlinear force and the hammer rebounds from the actual string
+        // displacement. This is what makes the attack struck rather than
+        // plucked.
+        v.hammerMass = 0.0032f + 0.0078f * std::exp(-(float) (midiNote - 21) / 40.0f);
+        const float contact = std::max(0.00045f, v.contactTimeTarget);
+        v.hammerStiffness = v.hammerMass * std::pow(kPi / contact, 2.0f);
+        v.hammerNonlinearity = 2.45f + 0.6f * params.tone;
+        v.hammerDamping = 2.0f * 0.18f * std::sqrt(v.hammerStiffness * v.hammerMass);
+        v.hammerPos = 0.0f;
+        v.hammerVel = 0.25f * std::pow(22.0f, v.velocity);
+        v.stringDisplacement = 0.0f;
+        v.hammerActive = true;
 
         for (int b = 0; b < kNumBanks; ++b)
         {
@@ -869,8 +932,7 @@ struct PianoEngine::Impl
             bank.configure(sampleRate, f0, detunes[b], t60 * t60scale[b], strike,
                            modes, weights[b], highRoll, sampleRate, seed + (uint32_t) b * 17u,
                            reuseStringState, brightnessTilt,
-                           v.excitation.data(), v.excitationLength, v.strikeImpulse,
-                           params.timbre);
+                           nullptr, 0, 0.0f, params.timbre);
             float bl, br;
             setPan(notePanValue + bankPans[b], bl, br);
             bank.panL = bl;
@@ -910,47 +972,6 @@ struct PianoEngine::Impl
 
         const int trimIndex = std::clamp(midiNote - 21, 0, 87);
         v.outputGain = std::pow(10.0f, kNoteTrimDb[trimIndex] / 20.0f);
-    }
-
-    void generateHammerPulse(Voice& v, int midiNote, float f0, float p) noexcept
-    {
-        const float contact = std::max(0.00045f, v.contactTimeTarget);
-        const float mass = 0.0032f + 0.0078f * std::exp(-(float) (midiNote - 21) / 40.0f);
-        const float omega = kPi / contact;
-        const float stiffness = mass * omega * omega;
-        const float nonlinearity = 2.45f + 0.6f * params.tone;
-        const float damping = 2.0f * 0.14f * std::sqrt(stiffness * mass);
-        const float v0 = 0.25f * std::pow(22.0f, v.velocity);
-        const float dt = 1.0f / sampleRate;
-
-        float h = 0.0f;
-        float hv = v0;
-        float maxForce = 0.0f;
-        int count = 0;
-        for (int i = 0; i < kMaxExcitation; ++i)
-        {
-            const float compression = std::max(0.0f, h);
-            const float cn = compression / 0.0006f;
-            const float spring = stiffness * compression
-                               * std::pow(std::max(0.0f, cn), nonlinearity - 1.0f);
-            const float force = std::max(0.0f, spring + damping * hv);
-            v.excitation[(size_t) i] = force;
-            maxForce = std::max(maxForce, force);
-            ++count;
-            hv -= force / mass * dt;
-            h += hv * dt;
-            if (i > 6 && force <= 0.0f && hv < 0.0f)
-                break;
-        }
-
-        if (maxForce > 1.0e-6f)
-        {
-            for (int i = 0; i < count; ++i)
-                v.excitation[(size_t) i] /= maxForce;
-        }
-        v.excitationLength = std::max(8, count);
-        v.excitationPosition = 0;
-        (void) f0; (void) p;
     }
 
     static float inharmonicityForNote(int note) noexcept
@@ -1126,25 +1147,48 @@ struct PianoEngine::Impl
                 ++activeCount;
                 ++v.age;
 
-                // Short felt-contact force pulse for this note. The pulse is
-                // pre-compensated per partial, so the contact low-pass does
-                // not make the treble dull or level-inconsistent.
+                // Nonlinear felt hammer in contact with the string. The
+                // hammer is driven by the actual string displacement at the
+                // strike point, not by a pre-recorded impulse.
                 float forceInput = 0.0f;
-                if (v.excitationPosition < v.excitationLength)
-                    forceInput = v.excitation[(size_t) v.excitationPosition++];
+                if (v.hammerActive)
+                {
+                    const float compression = v.hammerPos - v.stringDisplacement;
+                    if (compression > 0.0f)
+                    {
+                        const float cn = compression / 0.00060f;
+                        const float spring = v.hammerStiffness * compression
+                                           * std::pow(std::max(0.0f, cn),
+                                                      v.hammerNonlinearity - 1.0f);
+                        const float damping = v.hammerDamping * std::max(0.0f, v.hammerVel);
+                        forceInput = std::max(0.0f, spring + damping);
+                        forceInput = std::min(forceInput, 2500.0f);
+                    }
+                    v.hammerVel -= forceInput / v.hammerMass * dt;
+                    v.hammerPos += v.hammerVel * dt;
+                    if (v.hammerPos < -0.002f && v.hammerVel <= 0.0f)
+                        v.hammerActive = false;
+                }
+                forceInput += v.bridgeState * 0.012f;
 
                 float bankLeft[kNumBanks] {};
                 float bankRight[kNumBanks] {};
                 float forceMono = 0.0f;
+                float displacement = 0.0f;
 
                 for (int b = 0; b < v.stringCount; ++b)
                 {
                     auto& bank = v.banks[b];
-                    const float out = bank.process(forceInput);
+                    float d = 0.0f;
+                    const float out = bank.processAndDisplacement(forceInput, d);
                     bankLeft[b] = out * bank.panL;
                     bankRight[b] = out * bank.panR;
                     forceMono += out * bank.weight;
+                    displacement += d;
                 }
+                v.stringDisplacement = displacement / std::max(1, v.stringCount);
+                v.bridgeState = 0.85f * v.bridgeState
+                              + 0.15f * (bankLeft[0] + bankRight[0]) * 0.5f;
 
                 float vl = 0.0f, vr = 0.0f;
                 for (int b = 0; b < v.stringCount; ++b)

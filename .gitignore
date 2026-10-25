@@ -64,6 +64,9 @@ reaper-vst*.ini
 *.opus
 !demo/corda_demo.flac
 !demo/corda_demo.mp3
+!demo/corda_demo_v12.flac
+!demo/corda_demo_waveguide.flac
+!demo/corda_demo_waveguide.mp3
 
 # Rendered images: only the documented UI screenshot is kept.
 *.png

@@ -1,3 +1,5 @@
+> **Ветка `waveguide-v2`:** экспериментальное волноводное ядро 2.0. См. [docs/WAVEGUIDE_PREVIEW.md](docs/WAVEGUIDE_PREVIEW.md). Это preview, не замена v1.2.
+
 # Corda Grand 1.2
 
 **Физически моделируемый концертный рояль для Linux / VST3 / Cockos Reaper.**
